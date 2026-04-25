@@ -71,7 +71,32 @@ def get_feed(user_id: uuid.UUID, db: Session = Depends(get_db)):
     articles = db.query(models.Article).filter(
         models.Article.id.notin_(swiped_article_ids),
         models.Article.topics.overlap(interest_names)
-    ).limit(50).all() # Fetch larger pool to recommend top 10
+    ).limit(50).all()
+
+    # If the feed pool is critically low, trigger a background refresh for their topics!
+    if len(articles) < 5:
+        # We can trigger it sync for MVP so they instantly get new cards
+        import asyncio
+        for topic in interest_names[:3]: # top 3 topics
+            try:
+                titles = asyncio.run(wikipedia_service.search_articles(topic, limit=10))
+                for title in titles:
+                    existing = db.query(models.Article).filter(models.Article.title == title).first()
+                    if existing: continue
+                    wiki_data = asyncio.run(wikipedia_service.get_article_content_and_image(title))
+                    if not wiki_data["content"]: continue
+                    summary = asyncio.run(summary_service.generate_summary(wiki_data["content"]))
+                    new_art = models.Article(title=title, summary=summary, wiki_url=wiki_data["url"], image_url=wiki_data["image_url"], topics=[topic])
+                    db.add(new_art)
+                    db.commit()
+                    db.refresh(new_art)
+                    if new_art.id not in swiped_article_ids:
+                        articles.append(new_art)
+            except Exception as e:
+                print(f"Error auto-refreshing {topic}: {e}")
+                
+    if not articles:
+        return []
 
     # Score articles
     scored_articles = []
