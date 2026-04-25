@@ -4,7 +4,7 @@ from typing import List, Dict
 WIKI_API_URL = "https://en.wikipedia.org/w/api.php"
 
 async def search_articles(topic: str, limit: int = 5) -> List[str]:
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(headers={"User-Agent": "WikiSwipeApp/1.0 (contact@example.com)"}) as client:
         params = {
             "action": "query",
             "list": "search",
@@ -19,7 +19,7 @@ async def search_articles(topic: str, limit: int = 5) -> List[str]:
         return [item["title"] for item in search_results]
 
 async def get_article_content_and_image(title: str) -> Dict:
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(headers={"User-Agent": "WikiSwipeApp/1.0 (contact@example.com)"}) as client:
         params = {
             "action": "query",
             "prop": "extracts|pageimages",
