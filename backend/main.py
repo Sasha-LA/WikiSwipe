@@ -23,6 +23,12 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
 @app.post("/onboarding")
 def onboarding(req: schemas.OnboardingRequest, db: Session = Depends(get_db)):
     """Save user interests"""
+    # 0. Ensure user exists
+    user = db.query(models.User).filter(models.User.id == req.user_id).first()
+    if not user:
+        db.add(models.User(id=req.user_id))
+        db.commit()
+        
     # 1. Fetch or create interests
     for interest_name in req.interests:
         interest = db.query(models.Interest).filter(models.Interest.name == interest_name).first()
