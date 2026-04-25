@@ -134,7 +134,7 @@ async def refresh_articles(req: schemas.RefreshRequest, db: Session = Depends(ge
         topics = [db.query(models.Interest).get(p.interest_id).name for p in prefs] if prefs else ["History", "Science", "Technology"]
             
     for topic in topics:
-        titles = await wikipedia_service.search_articles(topic, limit=3)
+        titles = await wikipedia_service.search_articles(topic, limit=10)
         for title in titles:
             existing = db.query(models.Article).filter(models.Article.title == title).first()
             if existing:

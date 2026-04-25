@@ -3,9 +3,10 @@ import SwiftUI
 struct OnboardingView: View {
     @EnvironmentObject var appState: AppState
     
-    let topics = ["History", "Space", "Psychology", "Business", "Science", "Technology", "Cars", "Health", "Art", "Geography"]
+    @State private var topics = ["History", "Space", "Psychology", "Business", "Science", "Technology", "Cars", "Health", "Art", "Geography"]
     @State private var selectedTopics: Set<String> = []
     @State private var isLoading = false
+    @State private var newTopic = ""
     
     var body: some View {
         NavigationView {
@@ -17,7 +18,31 @@ struct OnboardingView: View {
                 
                 Text("Select topics you're interested in:")
                     .font(.headline)
-                    .padding(.bottom, 20)
+                    .padding(.bottom, 10)
+                
+                HStack {
+                    TextField("Or type a custom topic...", text: $newTopic)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                    
+                    Button(action: {
+                        let trimmed = newTopic.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty && !topics.contains(trimmed) {
+                            topics.append(trimmed)
+                            selectedTopics.insert(trimmed)
+                            newTopic = ""
+                        }
+                    }) {
+                        Text("Add")
+                            .fontWeight(.bold)
+                            .padding(.horizontal, 15)
+                            .padding(.vertical, 8)
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 10)
                 
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 120))], spacing: 15) {

@@ -16,17 +16,36 @@ struct CardView: View {
                             .resizable()
                             .aspectRatio(contentMode: .fill)
                     } placeholder: {
-                        Rectangle()
-                            .foregroundColor(.gray.opacity(0.3))
-                            .overlay(ProgressView())
+                        ZStack {
+                            LinearGradient(gradient: Gradient(colors: [Color.blue.opacity(0.3), Color.purple.opacity(0.3)]), startPoint: .topLeading, endPoint: .bottomTrailing)
+                            VStack {
+                                Image(systemName: "book.pages")
+                                    .font(.system(size: 50))
+                                    .foregroundColor(.white.opacity(0.8))
+                                    .padding(.bottom, 5)
+                                Text("No Image Available")
+                                    .font(.caption)
+                                    .foregroundColor(.white.opacity(0.8))
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                     .frame(height: geometry.size.height * 0.45)
                     .clipped()
                 } else {
-                    Rectangle()
-                        .foregroundColor(.gray.opacity(0.2))
-                        .frame(height: geometry.size.height * 0.45)
-                        .overlay(Image(systemName: "photo").font(.largeTitle).foregroundColor(.gray))
+                    ZStack {
+                        LinearGradient(gradient: Gradient(colors: [Color.blue.opacity(0.3), Color.purple.opacity(0.3)]), startPoint: .topLeading, endPoint: .bottomTrailing)
+                        VStack {
+                            Image(systemName: "book.pages")
+                                .font(.system(size: 50))
+                                .foregroundColor(.white.opacity(0.8))
+                                .padding(.bottom, 5)
+                            Text("No Image Available")
+                                .font(.caption)
+                                .foregroundColor(.white.opacity(0.8))
+                        }
+                    }
+                    .frame(height: geometry.size.height * 0.45)
                 }
                 
                 VStack(alignment: .leading, spacing: 10) {
@@ -92,9 +111,19 @@ struct CardView: View {
                     .onEnded { value in
                         let threshold: CGFloat = 100
                         if value.translation.width > threshold {
-                            onRemove(true)
+                            withAnimation(.easeOut(duration: 0.3)) {
+                                translation.width = 1000
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                onRemove(true)
+                            }
                         } else if value.translation.width < -threshold {
-                            onRemove(false)
+                            withAnimation(.easeOut(duration: 0.3)) {
+                                translation.width = -1000
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                onRemove(false)
+                            }
                         } else {
                             withAnimation(.interactiveSpring()) {
                                 translation = .zero
