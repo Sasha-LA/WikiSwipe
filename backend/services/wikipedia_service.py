@@ -4,6 +4,7 @@ from typing import List, Dict
 WIKI_API_URL = "https://en.wikipedia.org/w/api.php"
 
 async def search_articles(topic: str, limit: int = 5) -> List[str]:
+    import random
     async with httpx.AsyncClient(headers={"User-Agent": "WikiSwipeApp/1.0 (contact@example.com)"}) as client:
         params = {
             "action": "query",
@@ -11,7 +12,8 @@ async def search_articles(topic: str, limit: int = 5) -> List[str]:
             "srsearch": topic,
             "utf8": "",
             "format": "json",
-            "srlimit": limit
+            "srlimit": limit,
+            "sroffset": random.randint(0, 80)
         }
         response = await client.get(WIKI_API_URL, params=params)
         data = response.json()
