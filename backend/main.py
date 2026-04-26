@@ -54,7 +54,7 @@ def onboarding(req: schemas.OnboardingRequest, db: Session = Depends(get_db)):
     return {"status": "success"}
 
 @app.get("/feed", response_model=List[schemas.Article])
-def get_feed(user_id: uuid.UUID, db: Session = Depends(get_db)):
+async def get_feed(user_id: uuid.UUID, db: Session = Depends(get_db)):
     """Fetch feed based on recommendation logic (placeholder implementation)"""
     # Simply return articles the user hasn't swiped on yet, for topics they are interested in
     # In a full implementation, this uses RecommendationEngine
@@ -76,16 +76,15 @@ def get_feed(user_id: uuid.UUID, db: Session = Depends(get_db)):
     # If the feed pool is critically low, trigger a background refresh for their topics!
     if len(articles) < 5:
         # We can trigger it sync for MVP so they instantly get new cards
-        import asyncio
         for topic in interest_names[:3]: # top 3 topics
             try:
-                titles = asyncio.run(wikipedia_service.search_articles(topic, limit=10))
+                titles = await wikipedia_service.search_articles(topic, limit=10)
                 for title in titles:
                     existing = db.query(models.Article).filter(models.Article.title == title).first()
                     if existing: continue
-                    wiki_data = asyncio.run(wikipedia_service.get_article_content_and_image(title))
+                    wiki_data = await wikipedia_service.get_article_content_and_image(title)
                     if not wiki_data["content"]: continue
-                    summary = asyncio.run(summary_service.generate_summary(wiki_data["content"]))
+                    summary = await summary_service.generate_summary(wiki_data["content"])
                     new_art = models.Article(title=title, summary=summary, wiki_url=wiki_data["url"], image_url=wiki_data["image_url"], topics=[topic])
                     db.add(new_art)
                     db.commit()
