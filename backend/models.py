@@ -41,6 +41,7 @@ class Article(Base):
     wiki_url = Column(Text, nullable=False)
     image_url = Column(Text)
     topics = Column(ARRAY(String))
+    genres = Column(ARRAY(String))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 class ArticleTopic(Base):
@@ -71,3 +72,11 @@ class UserTopicPreference(Base):
 
     user = relationship("User", back_populates="preferences")
     interest = relationship("Interest")
+
+class UserGenrePreference(Base):
+    __tablename__ = "user_genre_preferences"
+
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    genre_name = Column(String(255), primary_key=True)
+    score = Column(Float, default=1.0)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

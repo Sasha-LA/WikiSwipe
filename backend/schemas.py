@@ -34,6 +34,7 @@ class ArticleBase(BaseModel):
     wiki_url: HttpUrl
     image_url: Optional[HttpUrl] = None
     topics: List[str] = []
+    genres: Optional[List[str]] = []
 
 class Article(ArticleBase):
     id: int

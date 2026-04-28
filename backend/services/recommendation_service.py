@@ -1,8 +1,8 @@
 import math
 
-def calculate_score(topic_preference: float, is_unseen: bool, days_since_published: int, repeat_count: int) -> float:
+def calculate_score(topic_preference: float, is_unseen: bool, days_since_published: int, repeat_count: int, genre_preference: float = 1.0) -> float:
     # Basic ranking formula based on the prompt instructions
-    score = topic_preference
+    score = (topic_preference + genre_preference) / 2.0
     if is_unseen:
         score += 2.0
     

@@ -66,8 +66,8 @@ async def background_wiki_fetch(topics: List[str], current_user_id: uuid.UUID):
                     if existing: continue
                     wiki_data = await wikipedia_service.get_article_content_and_image(title)
                     if not wiki_data["content"]: continue
-                    summary = await summary_service.generate_summary(wiki_data["content"])
-                    new_art = models.Article(title=title, summary=summary, wiki_url=wiki_data["url"], image_url=wiki_data["image_url"], topics=[topic])
+                    summary_res = await summary_service.generate_summary(wiki_data["content"])
+                    new_art = models.Article(title=title, summary=summary_res["summary"], wiki_url=wiki_data["url"], image_url=wiki_data["image_url"], topics=[topic], genres=summary_res["genres"])
                     db.add(new_art)
                     db.commit()
             except Exception as e:
@@ -77,10 +77,7 @@ async def background_wiki_fetch(topics: List[str], current_user_id: uuid.UUID):
 
 @app.get("/feed", response_model=List[schemas.Article])
 async def get_feed(user_id: uuid.UUID, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    """Fetch feed based on recommendation logic (placeholder implementation)"""
-    # Simply return articles the user hasn't swiped on yet, for topics they are interested in
-    # In a full implementation, this uses RecommendationEngine
-    # Query all user interests
+    """Fetch feed based on recommendation logic"""
     user_prefs = db.query(models.UserTopicPreference).filter(models.UserTopicPreference.user_id == user_id).order_by(models.UserTopicPreference.score.desc()).all()
     if not user_prefs:
         return []
@@ -95,15 +92,43 @@ async def get_feed(user_id: uuid.UUID, background_tasks: BackgroundTasks, db: Se
         models.Article.topics.overlap(interest_names)
     ).limit(50).all()
 
-    # If the feed pool is critically low, trigger a background refresh for their topics!
-    if len(articles) < 10:
+    # Trigger background refill if running low (below 30)
+    if len(articles) < 30:
         background_tasks.add_task(background_wiki_fetch, interest_names[:3], user_id)
                 
+    # If entirely empty EVEN AFTER background trigger, we MUST fetch synchronously or they get a black screen
+    if not articles:
+        import asyncio
+        newly_fetched = []
+        async def fetch_one(topic):
+            titles = await wikipedia_service.search_articles(topic, limit=2)
+            for title in titles:
+                existing = db.query(models.Article).filter(models.Article.title == title).first()
+                if existing: continue
+                wiki_data = await wikipedia_service.get_article_content_and_image(title)
+                if not wiki_data["content"]: continue
+                summary_res = await summary_service.generate_summary(wiki_data["content"])
+                new_art = models.Article(title=title, summary=summary_res["summary"], wiki_url=wiki_data["url"], image_url=wiki_data["image_url"], topics=[topic], genres=summary_res["genres"])
+                db.add(new_art)
+                db.commit()
+                db.refresh(new_art)
+                if new_art.id not in swiped_article_ids:
+                    return new_art
+            return None
+            
+        cors = [fetch_one(t) for t in interest_names[:2]]  # concurrently fetch 2 cards immediately
+        results = await asyncio.gather(*cors)
+        for r in results:
+            if r: articles.append(r)
+            
     if not articles:
         return []
 
     # Score articles
     scored_articles = []
+    
+    user_genre_prefs = db.query(models.UserGenrePreference).filter(models.UserGenrePreference.user_id == user_id).all()
+    genre_pref_map = {p.genre_name: p.score for p in user_genre_prefs}
     
     # Simple recency mock via checking db order/id (since created_at might be None during testing) or assume 0 for MVP
     for article in articles:
@@ -113,12 +138,18 @@ async def get_feed(user_id: uuid.UUID, background_tasks: BackgroundTasks, db: Se
             if topic in interest_names:
                 idx = interest_names.index(topic)
                 pref_score = max(pref_score, user_prefs[idx].score)
+                
+        genre_score = 1.0
+        if article.genres:
+            for g in article.genres:
+                genre_score = max(genre_score, genre_pref_map.get(g, 1.0))
         
         score = recommendation_service.calculate_score(
             topic_preference=pref_score,
             is_unseen=True, # since we filter out swiped_article_ids above
             days_since_published=1, # simplified
-            repeat_count=0
+            repeat_count=0,
+            genre_preference=genre_score
         )
         scored_articles.append((score, article))
         
@@ -138,16 +169,26 @@ def swipe(req: schemas.SwipeRequest, db: Session = Depends(get_db)):
     article = db.query(models.Article).filter(models.Article.id == req.article_id).first()
     if article:
         weight = 0.1 if req.swiped_right else -0.05
+        
+        # 2a. Update Topic preferences
         for topic in article.topics:
             interest = db.query(models.Interest).filter(models.Interest.name == topic).first()
             if interest:
                 pref = db.query(models.UserTopicPreference).filter_by(user_id=req.user_id, interest_id=interest.id).first()
                 if pref:
-                    pref.score += weight
-                    # keep score positive
-                    pref.score = max(0.1, pref.score)
+                    pref.score = max(0.1, pref.score + weight)
                 else:
                     pref = models.UserTopicPreference(user_id=req.user_id, interest_id=interest.id, score=1.0 + weight)
+                    db.add(pref)
+                    
+        # 2b. Update Genre preferences
+        if article.genres:
+            for genre in article.genres:
+                pref = db.query(models.UserGenrePreference).filter_by(user_id=req.user_id, genre_name=genre).first()
+                if pref:
+                    pref.score = max(0.1, pref.score + weight)
+                else:
+                    pref = models.UserGenrePreference(user_id=req.user_id, genre_name=genre, score=1.0 + weight)
                     db.add(pref)
                     
     db.commit()
@@ -173,14 +214,15 @@ async def refresh_articles(req: schemas.RefreshRequest, db: Session = Depends(ge
             if not wiki_data["content"]:
                 continue
                 
-            summary = await summary_service.generate_summary(wiki_data["content"])
+            summary_res = await summary_service.generate_summary(wiki_data["content"])
             
             article = models.Article(
                 title=title,
-                summary=summary,
+                summary=summary_res["summary"],
                 wiki_url=wiki_data["url"],
                 image_url=wiki_data["image_url"],
-                topics=[topic]
+                topics=[topic],
+                genres=summary_res["genres"]
             )
             db.add(article)
             db.commit()
