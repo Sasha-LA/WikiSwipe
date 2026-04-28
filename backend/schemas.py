@@ -1,6 +1,6 @@
 from pydantic import BaseModel, HttpUrl, UUID4
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, date
 
 class UserCreate(BaseModel):
     id: Optional[UUID4] = None

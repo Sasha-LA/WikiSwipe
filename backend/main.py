@@ -14,7 +14,14 @@ app = FastAPI(title="WikiSwipe MVP")
 
 @app.post("/users", response_model=schemas.User)
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    db_user = models.User(id=user.id or uuid.uuid4())
+    db_user = db.query(models.User).filter(models.User.id == user.id).first()
+    if db_user:
+        if user.date_of_birth and not db_user.date_of_birth:
+             db_user.date_of_birth = user.date_of_birth
+             db.commit()
+             db.refresh(db_user)
+        return db_user
+    db_user = models.User(id=user.id, date_of_birth=user.date_of_birth)
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
@@ -87,10 +94,27 @@ async def get_feed(user_id: uuid.UUID, background_tasks: BackgroundTasks, db: Se
     
     swiped_article_ids = [s.article_id for s in db.query(models.SwipeEvent).filter(models.SwipeEvent.user_id == user_id).all()]
     
-    articles = db.query(models.Article).filter(
+    # Calculate Age Context
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    is_minor = False
+    if user and user.date_of_birth:
+        import datetime
+        dt = user.date_of_birth
+        if type(dt) == datetime.datetime:
+            dt = dt.date()
+        today = datetime.date.today()
+        age = today.year - dt.year - ((today.month, today.day) < (dt.month, dt.day))
+        is_minor = age < 18
+        
+    base_query = db.query(models.Article).filter(
         models.Article.id.notin_(swiped_article_ids),
         models.Article.topics.overlap(interest_names)
-    ).limit(50).all()
+    )
+    
+    if is_minor:
+        base_query = base_query.filter(~models.Article.genres.overlap(["Dark", "Controversial", "Mature", "Sarcastic"]))
+        
+    articles = base_query.limit(50).all()
 
     # Trigger background refill if running low (below 30)
     if len(articles) < 30:
