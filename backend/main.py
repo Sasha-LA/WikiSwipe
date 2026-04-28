@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List
 import uuid
@@ -53,8 +53,30 @@ def onboarding(req: schemas.OnboardingRequest, db: Session = Depends(get_db)):
     db.commit()
     return {"status": "success"}
 
+async def background_wiki_fetch(topics: List[str], current_user_id: uuid.UUID):
+    db_gen = get_db()
+    db = next(db_gen)
+    try:
+        swiped_article_ids = [s.article_id for s in db.query(models.SwipeEvent).filter(models.SwipeEvent.user_id == current_user_id).all()]
+        for topic in topics:
+            try:
+                titles = await wikipedia_service.search_articles(topic, limit=10)
+                for title in titles:
+                    existing = db.query(models.Article).filter(models.Article.title == title).first()
+                    if existing: continue
+                    wiki_data = await wikipedia_service.get_article_content_and_image(title)
+                    if not wiki_data["content"]: continue
+                    summary = await summary_service.generate_summary(wiki_data["content"])
+                    new_art = models.Article(title=title, summary=summary, wiki_url=wiki_data["url"], image_url=wiki_data["image_url"], topics=[topic])
+                    db.add(new_art)
+                    db.commit()
+            except Exception as e:
+                print(f"Error auto-refreshing {topic}: {e}")
+    finally:
+        db_gen.close()
+
 @app.get("/feed", response_model=List[schemas.Article])
-async def get_feed(user_id: uuid.UUID, db: Session = Depends(get_db)):
+async def get_feed(user_id: uuid.UUID, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """Fetch feed based on recommendation logic (placeholder implementation)"""
     # Simply return articles the user hasn't swiped on yet, for topics they are interested in
     # In a full implementation, this uses RecommendationEngine
@@ -74,25 +96,8 @@ async def get_feed(user_id: uuid.UUID, db: Session = Depends(get_db)):
     ).limit(50).all()
 
     # If the feed pool is critically low, trigger a background refresh for their topics!
-    if len(articles) < 5:
-        # We can trigger it sync for MVP so they instantly get new cards
-        for topic in interest_names[:3]: # top 3 topics
-            try:
-                titles = await wikipedia_service.search_articles(topic, limit=10)
-                for title in titles:
-                    existing = db.query(models.Article).filter(models.Article.title == title).first()
-                    if existing: continue
-                    wiki_data = await wikipedia_service.get_article_content_and_image(title)
-                    if not wiki_data["content"]: continue
-                    summary = await summary_service.generate_summary(wiki_data["content"])
-                    new_art = models.Article(title=title, summary=summary, wiki_url=wiki_data["url"], image_url=wiki_data["image_url"], topics=[topic])
-                    db.add(new_art)
-                    db.commit()
-                    db.refresh(new_art)
-                    if new_art.id not in swiped_article_ids:
-                        articles.append(new_art)
-            except Exception as e:
-                print(f"Error auto-refreshing {topic}: {e}")
+    if len(articles) < 10:
+        background_tasks.add_task(background_wiki_fetch, interest_names[:3], user_id)
                 
     if not articles:
         return []
