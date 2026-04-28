@@ -232,3 +232,11 @@ async def refresh_articles(req: schemas.RefreshRequest, db: Session = Depends(ge
 @app.get("/")
 def read_root():
     return {"Hello": "WikiSwipe API"}
+
+@app.post("/reset-schema")
+def reset_schema():
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
+    models.Base.metadata.create_all(bind=engine)
+    return {"status": "success", "message": "Production Database Wiped & Rebuilt!"}
